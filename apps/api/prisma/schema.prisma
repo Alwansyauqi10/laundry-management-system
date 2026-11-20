@@ -11,3 +11,409 @@ generator client {
 datasource db {
   provider = "postgresql"
 }
+
+enum Role {
+  CUSTOMER
+  SUPER_ADMIN
+  OUTLET_ADMIN
+  WORKER
+  DRIVER
+}
+
+enum AuthProvider {
+  CREDENTIAL
+  GOOGLE
+}
+
+enum EmployeeStatus {
+  ACTIVE
+  INACTIVE
+}
+
+enum OrderStatus {
+  WAITING_FOR_PICKUP
+  ON_THE_WAY_TO_OUTLET
+  ARRIVED_AT_OUTLET
+  WASHING
+  IRONING
+  PACKING
+  WAITING_FOR_PAYMENT
+  READY_FOR_DELIVERY
+  ON_DELIVERY
+  RECEIVED_BY_CUSTOMER
+}
+
+enum Station {
+  WASHING
+  IRONING
+  PACKING
+}
+
+enum ProcessingStatus {
+  IN_PROGRESS
+  WAITING_BYPASS
+  COMPLETED
+}
+
+enum BypassStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+enum DriverJobStatus {
+  IN_PROGRESS
+  COMPLETED
+}
+
+enum PaymentStatus {
+  PENDING
+  PAID
+  EXPIRED
+  FAILED
+}
+
+enum ComplaintStatus {
+  OPEN
+  IN_REVIEW
+  RESOLVED
+}
+
+model User {
+  id         String       @id @default(uuid())
+  name       String
+  email      String       @unique
+  password   String?
+  provider   AuthProvider @default(CREDENTIAL)
+  phone      String?
+  avatar     String?
+  role       Role         @default(CUSTOMER)
+  isVerified Boolean      @default(false)
+  deletedAt  DateTime?
+  createdAt  DateTime     @default(now())
+  updatedAt  DateTime     @updatedAt
+
+  emailVerificationTokens EmailVerificationToken[]
+  passwordResetTokens     PasswordResetToken[]
+  addresses               Address[]
+  notifications           Notification[]
+  employeeAssignments     EmployeeAssignment[]
+  orders                  Order[]
+  pickups                 Pickup[]
+  deliveries              Delivery[]
+  stationProcessings      StationProcessing[]
+  bypassReviewed          BypassRequest[]
+  statusChanges           OrderStatusHistory[]
+  complaints              Complaint[]
+}
+
+model Outlet {
+  id              String    @id @default(uuid())
+  code            String    @unique
+  name            String
+  address         String
+  latitude        String
+  longitude       String
+  serviceRadiusKm String
+  pricePerKg      BigInt
+  phone           String?
+  deletedAt       DateTime?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  employeeAssignments EmployeeAssignment[]
+  orders              Order[]
+}
+
+model LaundryItem {
+  id        String    @id @default(uuid())
+  name      String
+  code      String    @unique
+  deletedAt DateTime?
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  orderItems      OrderItem[]
+  processingItems ProcessingItem[]
+}
+
+model EmailVerificationToken {
+  id        String    @id @default(uuid())
+  userId    String
+  tokenHash String    @unique
+  newEmail  String?
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+model PasswordResetToken {
+  id        String    @id @default(uuid())
+  userId    String
+  tokenHash String    @unique
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+model Address {
+  id         String    @id @default(uuid())
+  userId     String
+  label      String
+  recipient  String
+  phone      String
+  address    String
+  province   String
+  city       String
+  district   String
+  postalCode String
+  latitude   String
+  longitude  String
+  isPrimary  Boolean   @default(false)
+  deletedAt  DateTime?
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+
+  user   User    @relation(fields: [userId], references: [id])
+  orders Order[]
+
+  @@index([userId])
+}
+
+model Notification {
+  id        String    @id @default(uuid())
+  userId    String
+  type      String
+  title     String
+  message   String
+  data      Json?
+  readAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, readAt])
+}
+
+model EmployeeAssignment {
+  id        String         @id @default(uuid())
+  userId    String
+  outletId  String
+  status    EmployeeStatus @default(ACTIVE)
+  hiredAt   DateTime       @default(now())
+  createdAt DateTime       @default(now())
+  updatedAt DateTime       @updatedAt
+
+  user        User         @relation(fields: [userId], references: [id])
+  outlet      Outlet       @relation(fields: [outletId], references: [id])
+  attendances Attendance[]
+
+  @@index([userId])
+  @@index([outletId])
+}
+
+model Attendance {
+  id                   String    @id @default(uuid())
+  employeeAssignmentId String
+  date                 DateTime  @db.Date
+  clockInAt            DateTime
+  clockOutAt           DateTime?
+  createdAt            DateTime  @default(now())
+  updatedAt            DateTime  @updatedAt
+
+  employeeAssignment EmployeeAssignment @relation(fields: [employeeAssignmentId], references: [id])
+
+  @@unique([employeeAssignmentId, date])
+}
+
+model Order {
+  id               String      @id @default(uuid())
+  invoiceNumber    String      @unique
+  customerId       String
+  addressId        String
+  outletId         String
+  pickupScheduleAt DateTime
+  notes            String?
+  totalWeight      String?
+  pricePerKg       BigInt?
+  subTotal         BigInt?
+  deliveryFee      BigInt?
+  totalAmount      BigInt?
+  status           OrderStatus @default(WAITING_FOR_PICKUP)
+  reminderSentAt   DateTime?
+  confirmedAt      DateTime?
+  createdAt        DateTime    @default(now())
+  updatedAt        DateTime    @updatedAt
+
+  customer           User                 @relation(fields: [customerId], references: [id])
+  address            Address              @relation(fields: [addressId], references: [id])
+  outlet             Outlet               @relation(fields: [outletId], references: [id])
+  items              OrderItem[]
+  pickup             Pickup?
+  delivery           Delivery?
+  stationProcessings StationProcessing[]
+  payments           Payment[]
+  statusHistories    OrderStatusHistory[]
+  complaints         Complaint[]
+
+  @@index([customerId])
+  @@index([outletId])
+  @@index([status])
+  @@index([createdAt])
+}
+
+model OrderItem {
+  id            String   @id @default(uuid())
+  orderId       String
+  laundryItemId String
+  quantity      Int
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  order       Order       @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  laundryItem LaundryItem @relation(fields: [laundryItemId], references: [id])
+
+  @@unique([orderId, laundryItemId])
+}
+
+model Pickup {
+  id          String          @id @default(uuid())
+  orderId     String          @unique
+  driverId    String
+  status      DriverJobStatus @default(IN_PROGRESS)
+  startedAt   DateTime        @default(now())
+  completedAt DateTime?
+  createdAt   DateTime        @default(now())
+  updatedAt   DateTime        @updatedAt
+
+  order  Order @relation(fields: [orderId], references: [id])
+  driver User  @relation(fields: [driverId], references: [id])
+
+  @@index([driverId, status])
+}
+
+model Delivery {
+  id          String          @id @default(uuid())
+  orderId     String          @unique
+  driverId    String
+  status      DriverJobStatus @default(IN_PROGRESS)
+  startedAt   DateTime        @default(now())
+  completedAt DateTime?
+  createdAt   DateTime        @default(now())
+  updatedAt   DateTime        @updatedAt
+
+  order  Order @relation(fields: [orderId], references: [id])
+  driver User  @relation(fields: [driverId], references: [id])
+
+  @@index([driverId, status])
+}
+
+model StationProcessing {
+  id          String           @id @default(uuid())
+  orderId     String
+  workerId    String
+  station     Station
+  status      ProcessingStatus @default(IN_PROGRESS)
+  startedAt   DateTime         @default(now())
+  completedAt DateTime?
+  createdAt   DateTime         @default(now())
+  updatedAt   DateTime         @updatedAt
+
+  order          Order            @relation(fields: [orderId], references: [id])
+  worker         User             @relation(fields: [workerId], references: [id])
+  items          ProcessingItem[]
+  bypassRequests BypassRequest[]
+
+  @@unique([orderId, station])
+  @@index([workerId])
+}
+
+model ProcessingItem {
+  id               String   @id @default(uuid())
+  processingId     String
+  laundryItemId    String
+  expectedQuantity Int
+  actualQuantity   Int
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  processing  StationProcessing @relation(fields: [processingId], references: [id], onDelete: Cascade)
+  laundryItem LaundryItem       @relation(fields: [laundryItemId], references: [id])
+
+  @@unique([processingId, laundryItemId])
+}
+
+model BypassRequest {
+  id           String       @id @default(uuid())
+  processingId String
+  reviewedById String?
+  reason       String
+  status       BypassStatus @default(PENDING)
+  adminNote    String?
+  requestedAt  DateTime     @default(now())
+  reviewedAt   DateTime?
+
+  processing StationProcessing @relation(fields: [processingId], references: [id])
+  reviewedBy User?             @relation(fields: [reviewedById], references: [id])
+
+  @@index([processingId])
+  @@index([status])
+}
+
+model Payment {
+  id            String        @id @default(uuid())
+  orderId       String
+  amount        BigInt
+  method        String?
+  status        PaymentStatus @default(PENDING)
+  provider      String?
+  transactionId String?       @unique
+  paymentUrl    String?
+  paidAt        DateTime?
+  expiredAt     DateTime?
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+
+  order Order @relation(fields: [orderId], references: [id])
+
+  @@index([orderId])
+}
+
+model OrderStatusHistory {
+  id          String      @id @default(uuid())
+  orderId     String
+  changedById String?
+  status      OrderStatus
+  createdAt   DateTime    @default(now())
+
+  order     Order @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  changedBy User? @relation(fields: [changedById], references: [id])
+
+  @@index([orderId])
+}
+
+model Complaint {
+  id          String          @id @default(uuid())
+  orderId     String
+  customerId  String
+  subject     String
+  description String
+  status      ComplaintStatus @default(OPEN)
+  resolution  String?
+  createdAt   DateTime        @default(now())
+  updatedAt   DateTime        @updatedAt
+
+  order    Order @relation(fields: [orderId], references: [id])
+  customer User  @relation(fields: [customerId], references: [id])
+
+  @@index([orderId])
+  @@index([customerId])
+}
